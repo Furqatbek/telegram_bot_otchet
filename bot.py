@@ -65,12 +65,18 @@ def evaluate_math(expression: str) -> float | None:
 
 
 def _extract_number(text: str) -> tuple[float, str] | None:
-    m = re.match(r"^(\d{1,3}(?:\.\d{3})+|\d+)\s*(.*)$", text)
+    m = re.match(r"^(\$?)([\d.]+)(\$?)\s*(.*)$", text)
     if not m:
         return None
-    num_str = m.group(1)
-    rest = (m.group(2) or "").strip()
-    return float(num_str.replace(".", "")), rest
+    dollar = m.group(1) or m.group(3)
+    num_str = m.group(2).replace(".", "")
+    rest = (m.group(4) or "").strip()
+    if not num_str:
+        return None
+    amount = float(num_str)
+    if dollar:
+        amount *= 12500
+    return amount, rest
 
 
 def parse_bulk_text(text: str) -> list[tuple[float, str]]:
