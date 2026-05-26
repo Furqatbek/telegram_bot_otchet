@@ -13,7 +13,7 @@ from telegram.ext import (
     filters,
 )
 
-TYPE, INPUT_MODE, AMOUNT, BULK_TEXT, PAYMENT = range(5)
+TYPE, INPUT_MODE, AMOUNT, BULK_TEXT, PAYMENT, FILENAME = range(6)
 
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
@@ -299,8 +299,7 @@ async def choose_payment(update: Update, context) -> int:
             f"Turi: {record_type}\n"
             f"Yozuvlar soni: {len(entries)}\n"
             f"Jami: {display} so'm\n"
-            f"To'lov: {text}\n\n"
-            "Excel faylni yubormoqdaman...",
+            f"To'lov: {text}",
             reply_markup=ReplyKeyboardRemove(),
         )
     else:
@@ -312,14 +311,29 @@ async def choose_payment(update: Update, context) -> int:
             f"Saqlandi!\n"
             f"Turi: {record_type}\n"
             f"Miqdor: {display} so'm\n"
-            f"To'lov: {text}\n\n"
-            "Excel faylni yubormoqdaman...",
+            f"To'lov: {text}",
             reply_markup=ReplyKeyboardRemove(),
         )
 
+    await update.message.reply_text("Fayl nomini kiriting (masalan: may_hisobot):")
+    return FILENAME
+
+
+async def enter_filename(update: Update, context) -> int:
+    name = update.message.text.strip()
+    if not name:
+        await update.message.reply_text("Iltimos, fayl nomini kiriting:")
+        return FILENAME
+
+    if not name.endswith(".xlsx"):
+        name += ".xlsx"
+
+    user_id = update.effective_user.id
+    path = get_user_file(user_id)
+
     await update.message.reply_document(
         document=open(path, "rb"),
-        filename=f"hisobot_{user_id}.xlsx",
+        filename=name,
         caption="Sizning hisobotingiz",
     )
 
@@ -367,6 +381,7 @@ def main():
             AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount)],
             BULK_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_bulk)],
             PAYMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_payment)],
+            FILENAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_filename)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
