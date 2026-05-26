@@ -14,12 +14,12 @@ from telegram.ext import (
     filters,
 )
 
-TYPE, AMOUNT, PAYMENT = range(3)
+TYPE, INPUT_MODE, AMOUNT, BULK_TEXT, PAYMENT = range(5)
 
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
 
-HEADERS = ["Kirim", "Chiqim", "Miqdor", "Naqd yoki Perechisleniya", "Sana"]
+HEADERS = ["Kirim", "Chiqim", "Miqdor", "Izoh", "Naqd yoki Perechisleniya", "Sana"]
 
 HEADER_FONT = Font(bold=True, size=12)
 HEADER_ALIGNMENT = Alignment(horizontal="center")
@@ -29,7 +29,7 @@ THIN_BORDER = Border(
     top=Side(style="thin"),
     bottom=Side(style="thin"),
 )
-COLUMN_WIDTHS = [15, 15, 18, 25, 20]
+COLUMN_WIDTHS = [15, 15, 18, 30, 25, 20]
 
 
 def get_user_file(user_id: int) -> Path:
@@ -64,7 +64,59 @@ def evaluate_math(expression: str) -> float | None:
         return None
 
 
-def append_record(user_id: int, record_type: str, amount: float, payment: str) -> Path:
+def _extract_number(text: str) -> tuple[float, str] | None:
+    m = re.match(r"^(\d{1,3}(?:\.\d{3})+|\d+)\s*(.*)$", text)
+    if not m:
+        return None
+    num_str = m.group(1)
+    rest = (m.group(2) or "").strip()
+    return float(num_str.replace(".", "")), rest
+
+
+def parse_bulk_text(text: str) -> list[tuple[float, str]]:
+    lines = text.strip().split("\n")
+
+    merged = []
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("+") and merged:
+            merged[-1] += line
+        else:
+            merged.append(line)
+
+    results = []
+    for line in merged:
+        line = line.strip().strip("+").strip()
+        if not line:
+            continue
+
+        if "+" in line:
+            segments = [s.strip() for s in line.split("+") if s.strip()]
+            total = 0.0
+            descs = []
+            ok = True
+            for seg in segments:
+                parsed = _extract_number(seg)
+                if parsed:
+                    total += parsed[0]
+                    if parsed[1]:
+                        descs.append(parsed[1])
+                else:
+                    ok = False
+                    break
+            if ok and total > 0:
+                results.append((total, " ".join(descs)))
+        else:
+            parsed = _extract_number(line)
+            if parsed and parsed[0] > 0:
+                results.append(parsed)
+
+    return results
+
+
+def append_record(user_id: int, record_type: str, amount: float, payment: str, description: str = "") -> Path:
     path = ensure_workbook(user_id)
     wb = load_workbook(path)
     ws = wb.active
@@ -74,13 +126,34 @@ def append_record(user_id: int, record_type: str, amount: float, payment: str) -
     kirim = amount if record_type == "Kirim" else ""
     chiqim = amount if record_type == "Chiqim" else ""
 
-    row = [kirim, chiqim, amount, payment, now]
+    row = [kirim, chiqim, amount, description, payment, now]
     next_row = ws.max_row + 1
     for col_idx, value in enumerate(row, 1):
         cell = ws.cell(row=next_row, column=col_idx, value=value)
         cell.border = THIN_BORDER
         if isinstance(value, float):
             cell.number_format = "#,##0.00"
+
+    wb.save(path)
+    return path
+
+
+def append_records_bulk(user_id: int, record_type: str, entries: list[tuple[float, str]], payment: str) -> Path:
+    path = ensure_workbook(user_id)
+    wb = load_workbook(path)
+    ws = wb.active
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    for amount, description in entries:
+        kirim = amount if record_type == "Kirim" else ""
+        chiqim = amount if record_type == "Chiqim" else ""
+        row_data = [kirim, chiqim, amount, description, payment, now]
+        next_row = ws.max_row + 1
+        for col_idx, value in enumerate(row_data, 1):
+            cell = ws.cell(row=next_row, column=col_idx, value=value)
+            cell.border = THIN_BORDER
+            if isinstance(value, float):
+                cell.number_format = "#,##0.00"
 
     wb.save(path)
     return path
@@ -107,12 +180,43 @@ async def choose_type(update: Update, context) -> int:
         return TYPE
 
     context.user_data["type"] = text
+    keyboard = [["Yakka", "Ommaviy"]]
     await update.message.reply_text(
-        f"{text} tanlandi.\n\n"
-        "Miqdorni kiriting (masalan: 50000 yoki 10000+25000+3000):",
+        f"{text} tanlandi.\n\nKiritish turini tanlang:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True),
+    )
+    return INPUT_MODE
+
+
+async def choose_input_mode(update: Update, context) -> int:
+    text = update.message.text
+    if text not in ("Yakka", "Ommaviy"):
+        keyboard = [["Yakka", "Ommaviy"]]
+        await update.message.reply_text(
+            "Iltimos, 'Yakka' yoki 'Ommaviy' ni tanlang:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True),
+        )
+        return INPUT_MODE
+
+    context.user_data["input_mode"] = text
+
+    if text == "Yakka":
+        await update.message.reply_text(
+            "Miqdorni kiriting (masalan: 50000 yoki 10000+25000+3000):",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return AMOUNT
+
+    await update.message.reply_text(
+        "Ommaviy ma'lumotlarni kiriting.\n"
+        "Har bir qator alohida yozuv bo'ladi.\n\n"
+        "Misol:\n"
+        "110.000 kavchok vilanka 20mtr\n"
+        "200.000 sim 4 lik\n"
+        "300.000+200.000+500.000",
         reply_markup=ReplyKeyboardRemove(),
     )
-    return AMOUNT
+    return BULK_TEXT
 
 
 async def enter_amount(update: Update, context) -> int:
@@ -136,6 +240,44 @@ async def enter_amount(update: Update, context) -> int:
     return PAYMENT
 
 
+async def enter_bulk(update: Update, context) -> int:
+    text = update.message.text.strip()
+    entries = parse_bulk_text(text)
+
+    if not entries:
+        await update.message.reply_text(
+            "Hech qanday yozuv topilmadi. Iltimos, qaytadan kiriting.\n\n"
+            "Misol:\n"
+            "110.000 kavchok vilanka 20mtr\n"
+            "200.000 sim 4 lik\n"
+            "300.000+200.000+500.000"
+        )
+        return BULK_TEXT
+
+    context.user_data["entries"] = entries
+
+    total = sum(a for a, _ in entries)
+    display_total = f"{total:,.0f}".replace(",", " ")
+    summary_lines = []
+    for i, (amount, desc) in enumerate(entries, 1):
+        display_amt = f"{amount:,.0f}".replace(",", " ")
+        if desc:
+            summary_lines.append(f"  {i}. {display_amt} - {desc}")
+        else:
+            summary_lines.append(f"  {i}. {display_amt}")
+
+    summary = "\n".join(summary_lines)
+
+    keyboard = [["Naqd", "Perechisleniya"]]
+    await update.message.reply_text(
+        f"{len(entries)} ta yozuv topildi:\n{summary}\n\n"
+        f"Jami: {display_total} so'm\n\n"
+        "To'lov turini tanlang:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True),
+    )
+    return PAYMENT
+
+
 async def choose_payment(update: Update, context) -> int:
     text = update.message.text
     if text not in ("Naqd", "Perechisleniya"):
@@ -147,20 +289,37 @@ async def choose_payment(update: Update, context) -> int:
         return PAYMENT
 
     record_type = context.user_data["type"]
-    amount = context.user_data["amount"]
     user_id = update.effective_user.id
+    input_mode = context.user_data.get("input_mode", "Yakka")
 
-    path = append_record(user_id, record_type, amount, text)
+    if input_mode == "Ommaviy":
+        entries = context.user_data.get("entries", [])
+        path = append_records_bulk(user_id, record_type, entries, text)
 
-    display = f"{amount:,.2f}".replace(",", " ")
-    await update.message.reply_text(
-        f"Saqlandi!\n"
-        f"Turi: {record_type}\n"
-        f"Miqdor: {display} so'm\n"
-        f"To'lov: {text}\n\n"
-        "Excel faylni yubormoqdaman...",
-        reply_markup=ReplyKeyboardRemove(),
-    )
+        total = sum(a for a, _ in entries)
+        display = f"{total:,.0f}".replace(",", " ")
+        await update.message.reply_text(
+            f"Saqlandi!\n"
+            f"Turi: {record_type}\n"
+            f"Yozuvlar soni: {len(entries)}\n"
+            f"Jami: {display} so'm\n"
+            f"To'lov: {text}\n\n"
+            "Excel faylni yubormoqdaman...",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+    else:
+        amount = context.user_data["amount"]
+        path = append_record(user_id, record_type, amount, text)
+
+        display = f"{amount:,.2f}".replace(",", " ")
+        await update.message.reply_text(
+            f"Saqlandi!\n"
+            f"Turi: {record_type}\n"
+            f"Miqdor: {display} so'm\n"
+            f"To'lov: {text}\n\n"
+            "Excel faylni yubormoqdaman...",
+            reply_markup=ReplyKeyboardRemove(),
+        )
 
     await update.message.reply_document(
         document=open(path, "rb"),
@@ -208,7 +367,9 @@ def main():
         entry_points=[CommandHandler("start", start)],
         states={
             TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_type)],
+            INPUT_MODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_input_mode)],
             AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount)],
+            BULK_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_bulk)],
             PAYMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_payment)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
