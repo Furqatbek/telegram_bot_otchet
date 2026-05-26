@@ -156,6 +156,12 @@ def append_records_bulk(user_id: int, record_type: str, entries: list[tuple[floa
 
 
 async def start(update: Update, context) -> int:
+    user_id = update.effective_user.id
+    path = get_user_file(user_id)
+    if path.exists():
+        path.unlink()
+    context.user_data.clear()
+
     keyboard = [["Kirim", "Chiqim"]]
     await update.message.reply_text(
         "Assalomu alaykum! Men sizning kirim-chiqim botingizman.\n\n"
