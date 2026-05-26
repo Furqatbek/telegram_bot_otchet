@@ -1,6 +1,5 @@
 import os
 import re
-import datetime
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -19,7 +18,7 @@ TYPE, INPUT_MODE, AMOUNT, BULK_TEXT, PAYMENT = range(5)
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
 
-HEADERS = ["Kirim", "Chiqim", "Miqdor", "Izoh", "Naqd yoki Perechisleniya", "Sana"]
+HEADERS = ["Turi", "Miqdor", "Izoh", "Naqd yoki Perechisleniya"]
 
 HEADER_FONT = Font(bold=True, size=12)
 HEADER_ALIGNMENT = Alignment(horizontal="center")
@@ -29,7 +28,7 @@ THIN_BORDER = Border(
     top=Side(style="thin"),
     bottom=Side(style="thin"),
 )
-COLUMN_WIDTHS = [15, 15, 18, 30, 25, 20]
+COLUMN_WIDTHS = [15, 18, 30, 25]
 
 
 def get_user_file(user_id: int) -> Path:
@@ -127,12 +126,7 @@ def append_record(user_id: int, record_type: str, amount: float, payment: str, d
     wb = load_workbook(path)
     ws = wb.active
 
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    kirim = amount if record_type == "Kirim" else ""
-    chiqim = amount if record_type == "Chiqim" else ""
-
-    row = [kirim, chiqim, amount, description, payment, now]
+    row = [record_type, amount, description, payment]
     next_row = ws.max_row + 1
     for col_idx, value in enumerate(row, 1):
         cell = ws.cell(row=next_row, column=col_idx, value=value)
@@ -148,12 +142,8 @@ def append_records_bulk(user_id: int, record_type: str, entries: list[tuple[floa
     path = ensure_workbook(user_id)
     wb = load_workbook(path)
     ws = wb.active
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-
     for amount, description in entries:
-        kirim = amount if record_type == "Kirim" else ""
-        chiqim = amount if record_type == "Chiqim" else ""
-        row_data = [kirim, chiqim, amount, description, payment, now]
+        row_data = [record_type, amount, description, payment]
         next_row = ws.max_row + 1
         for col_idx, value in enumerate(row_data, 1):
             cell = ws.cell(row=next_row, column=col_idx, value=value)
