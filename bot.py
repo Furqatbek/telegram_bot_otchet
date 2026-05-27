@@ -91,32 +91,28 @@ def parse_bulk_text(text: str) -> list[tuple[float, str]]:
         else:
             merged.append(line)
 
+    calc_re = re.compile(r"^(\$?[\d.]+\$?(?:\+\$?[\d.]+\$?)*)(.*)")
     results = []
     for line in merged:
         line = line.strip().strip("+").strip()
         if not line:
             continue
 
-        if "+" in line:
-            segments = [s.strip() for s in line.split("+") if s.strip()]
-            total = 0.0
-            descs = []
-            ok = True
-            for seg in segments:
-                parsed = _extract_number(seg)
-                if parsed:
-                    total += parsed[0]
-                    if parsed[1]:
-                        descs.append(parsed[1])
-                else:
-                    ok = False
-                    break
-            if ok and total > 0:
-                results.append((total, " ".join(descs)))
-        else:
-            parsed = _extract_number(line)
-            if parsed and parsed[0] > 0:
-                results.append(parsed)
+        m = calc_re.match(line)
+        if not m:
+            continue
+
+        calc_part = m.group(1)
+        desc = m.group(2).strip()
+
+        total = 0.0
+        for seg in calc_part.split("+"):
+            parsed = _extract_number(seg)
+            if parsed:
+                total += parsed[0]
+
+        if total > 0:
+            results.append((total, desc))
 
     return results
 
