@@ -63,19 +63,21 @@ def evaluate_math(expression: str) -> float | None:
         return None
 
 
-def _extract_number(text: str) -> tuple[float, str] | None:
-    m = re.match(r"^(\$?)([\d.]+)(\$?)\s*(.*)$", text)
-    if not m:
-        return None
-    dollar = m.group(1) or m.group(3)
-    num_str = m.group(2).replace(".", "")
-    rest = (m.group(4) or "").strip()
-    if not num_str:
-        return None
-    amount = float(num_str)
-    if dollar:
-        amount *= 12500
-    return amount, rest
+def _parse_bulk_amount(text: str) -> tuple[float, str] | None:
+    m = re.match(r"^(\$?)(\d{1,3}(?:\.\d{3})+)(\$?)\s*(.*)$", text)
+    if m:
+        dollar = m.group(1) or m.group(3)
+        amount = float(m.group(2).replace(".", ""))
+        if dollar:
+            amount *= 12500
+        return amount, (m.group(4) or "").strip()
+    m = re.match(r"^\$(\d+)\s*(.*)$", text)
+    if m:
+        return float(m.group(1)) * 12500, (m.group(2) or "").strip()
+    m = re.match(r"^(\d+)\$\s*(.*)$", text)
+    if m:
+        return float(m.group(1)) * 12500, (m.group(2) or "").strip()
+    return None
 
 
 def parse_bulk_text(text: str) -> list[tuple[float, str]]:
@@ -91,28 +93,26 @@ def parse_bulk_text(text: str) -> list[tuple[float, str]]:
         else:
             merged.append(line)
 
-    calc_re = re.compile(r"^(\$?[\d.]+\$?(?:\+\$?[\d.]+\$?)*)(.*)")
     results = []
     for line in merged:
         line = line.strip().strip("+").strip()
         if not line:
             continue
 
-        m = calc_re.match(line)
-        if not m:
-            continue
-
-        calc_part = m.group(1)
-        desc = m.group(2).strip()
-
+        segments = [s.strip() for s in line.split("+") if s.strip()]
         total = 0.0
-        for seg in calc_part.split("+"):
-            parsed = _extract_number(seg)
+        descs = []
+        for seg in segments:
+            parsed = _parse_bulk_amount(seg)
             if parsed:
                 total += parsed[0]
+                if parsed[1]:
+                    descs.append(parsed[1])
+            else:
+                descs.append(seg)
 
         if total > 0:
-            results.append((total, desc))
+            results.append((total, " ".join(descs)))
 
     return results
 
