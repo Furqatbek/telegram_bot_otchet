@@ -264,13 +264,26 @@ async def enter_bulk(update: Update, context) -> int:
         else:
             summary_lines.append(f"  {i}. {display_amt}")
 
+    header = f"{len(entries)} ta yozuv topildi:\n"
+    footer = f"\n\nJami: {display_total} so'm\n\nTo'lov turini tanlang:"
+    budget = 4000 - len(header) - len(footer)
+
     summary = "\n".join(summary_lines)
+    if len(summary) > budget:
+        kept = []
+        used = 0
+        truncated_marker = "  ..."
+        for line in summary_lines:
+            if used + len(line) + 1 + len(truncated_marker) > budget:
+                kept.append(truncated_marker)
+                break
+            kept.append(line)
+            used += len(line) + 1
+        summary = "\n".join(kept)
 
     keyboard = [["Naqd", "Perechisleniya"]]
     await update.message.reply_text(
-        f"{len(entries)} ta yozuv topildi:\n{summary}\n\n"
-        f"Jami: {display_total} so'm\n\n"
-        "To'lov turini tanlang:",
+        f"{header}{summary}{footer}",
         reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True),
     )
     return PAYMENT
